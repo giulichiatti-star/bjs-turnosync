@@ -1301,6 +1301,10 @@ if (typeof window !== 'undefined') {
   window.importCSV = importCSV;
   window.downloadPlantilla = downloadPlantilla;
   window.confirmImport = confirmImport;
+  window.switchImportTab = switchImportTab;
+  window.previewFoto = previewFoto;
+  window.analizarFoto = analizarFoto;
+  window.confirmFoto = confirmFoto;
 }
 
 // ===== CSV IMPORT =====
@@ -1423,6 +1427,109 @@ function confirmImport() {
   updateStats();
   closeModal('modal-import');
   showToast('📥 Horario importado — pulsa Guardar para confirmar', 'success');
+}
+
+function switchImportTab(tab) {
+  document.getElementById('import-tab-csv').style.display = tab === 'csv' ? '' : 'none';
+  document.getElementById('import-tab-foto').style.display = tab === 'foto' ? '' : 'none';
+  document.getElementById('tab-csv').className = tab === 'csv' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+  document.getElementById('tab-foto').className = tab === 'foto' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+  document.getElementById('tab-csv').style.flex = '1';
+  document.getElementById('tab-foto').style.flex = '1';
+  document.getElementById('tab-csv').style.fontSize = '13px';
+  document.getElementById('tab-foto').style.fontSize = '13px';
+}
+
+function previewFoto() {
+  const file = document.getElementById('foto-file-input').files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const img = document.getElementById('foto-preview-img');
+  img.src = url;
+  document.getElementById('foto-preview-wrap').style.display = 'block';
+  document.getElementById('btn-foto-analizar').style.display = 'inline-flex';
+  document.getElementById('foto-result').innerHTML = '';
+  document.getElementById('foto-error').textContent = '';
+  document.getElementById('btn-foto-confirm').style.display = 'none';
+}
+
+let fotoParsed = null;
+
+async function analizarFoto() {
+  const file = document.getElementById('foto-file-input').files[0];
+  const errEl = document.getElementById('foto-error');
+  const resultEl = document.getElementById('foto-result');
+  const confirmBtn = document.getElementById('btn-foto-confirm');
+  const analizarBtn = document.getElementById('btn-foto-analizar');
+
+  if (!file) { errEl.textContent = 'Selecciona una imagen primero.'; return; }
+
+  errEl.textContent = '';
+  resultEl.innerHTML = '<div style="color:#6b8099;font-size:13px;">🔍 Analizando imagen con IA…</div>';
+  analizarBtn.disabled = true;
+  analizarBtn.textContent = 'Analizando…';
+
+  try {
+    const base64 = await fileToBase64(file);
+    const agents = MODULES[currentModule].agents;
+
+    const res = await fetch('/api/interpret-photo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: base64, mimeType: file.type, agents, month: currentMonth, year: currentYear })
+    });
+
+    const data = await res.json();
+
+    if (data.error) { errEl.textContent = `Error: ${data.error}`; resultEl.innerHTML = ''; return; }
+
+    const turnos = data.turnos || [];
+    if (turnos.length === 0) { errEl.textContent = 'No se detectaron turnos en la imagen.'; resultEl.innerHTML = ''; return; }
+
+    // Mapear a schedules format
+    fotoParsed = {};
+    const validShifts = ['A','B','OFF','AUS','BUS'];
+    let ok = 0;
+    turnos.forEach(({ agente, dia, turno }) => {
+      const matchedAgent = agents.find(a =>
+        norm(a).includes(norm(agente)) || norm(agente).includes(norm(a.split(' ')[0]))
+      );
+      if (!matchedAgent || !dia || !validShifts.includes(turno)) return;
+      fotoParsed[getKey(matchedAgent, dia)] = turno;
+      ok++;
+    });
+
+    resultEl.innerHTML = `<div style="color:#86efac;font-size:13px;">✓ ${ok} turnos detectados en la imagen</div>`;
+    confirmBtn.style.display = 'inline-flex';
+
+  } catch (e) {
+    errEl.textContent = `Error: ${e.message}`;
+    resultEl.innerHTML = '';
+  } finally {
+    analizarBtn.disabled = false;
+    analizarBtn.textContent = '🔍 Analizar con IA';
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function confirmFoto() {
+  if (!fotoParsed) return;
+  if (!editMode) activarEdicion();
+  Object.assign(schedules[currentModule], fotoParsed);
+  fotoParsed = null;
+  marcarPendiente();
+  renderGrid();
+  updateStats();
+  closeModal('modal-import');
+  showToast('📷 Horario importado desde foto — pulsa Guardar para confirmar', 'success');
 }
 
 // ===== REACT COMPONENT =====
@@ -1727,37 +1834,63 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Modal Importar CSV */}
+      {/* Modal Importar */}
       <div className="overlay" id="modal-import">
-        <div className="modal" style={{ width: 520 }}>
+        <div className="modal" style={{ width: 540 }}>
           <div className="modal-title">📥 Importar horario</div>
-          <div className="modal-sub">Sube un archivo CSV o pega el contenido directamente.</div>
 
-          <div style={{ background: '#0a0f1e', border: '1px solid #1e2d45', borderRadius: 8, padding: '12px 16px', marginBottom: 16, fontSize: 12, color: '#6b8099', lineHeight: 1.7 }}>
-            <strong style={{ color: '#f0f4ff' }}>Formato esperado:</strong><br/>
-            Columnas: <code style={{ color: '#48b4e0' }}>agente, dia, turno</code><br/>
-            Turnos válidos: <code style={{ color: '#48b4e0' }}>A · B · OFF · AUS · BUS</code><br/>
-            <button className="btn btn-ghost btn-sm" style={{ marginTop: 8, fontSize: 11 }} onClick={() => window.downloadPlantilla?.()}>⬇ Descargar plantilla del mes actual</button>
+          {/* Tabs */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: '#0a0f1e', borderRadius: 8, padding: 4 }}>
+            <button id="tab-csv" className="btn btn-primary btn-sm" style={{ flex: 1, fontSize: 13 }} onClick={() => window.switchImportTab?.('csv')}>📄 CSV / Excel</button>
+            <button id="tab-foto" className="btn btn-ghost btn-sm" style={{ flex: 1, fontSize: 13 }} onClick={() => window.switchImportTab?.('foto')}>📷 Foto</button>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Subir archivo .csv</label>
-            <input type="file" id="csv-file-input" accept=".csv,text/csv" className="form-control" style={{ cursor: 'pointer' }} onChange={() => window.importCSV?.()} />
+          {/* Tab CSV */}
+          <div id="import-tab-csv">
+            <div style={{ background: '#0a0f1e', border: '1px solid #1e2d45', borderRadius: 8, padding: '12px 16px', marginBottom: 16, fontSize: 12, color: '#6b8099', lineHeight: 1.7 }}>
+              <strong style={{ color: '#f0f4ff' }}>Formato esperado:</strong><br/>
+              Columnas: <code style={{ color: '#48b4e0' }}>agente, dia, turno</code><br/>
+              Turnos válidos: <code style={{ color: '#48b4e0' }}>A · B · OFF · AUS · BUS</code><br/>
+              <button className="btn btn-ghost btn-sm" style={{ marginTop: 8, fontSize: 11 }} onClick={() => window.downloadPlantilla?.()}>⬇ Descargar plantilla del mes actual</button>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Subir archivo .csv</label>
+              <input type="file" id="csv-file-input" accept=".csv,text/csv" className="form-control" style={{ cursor: 'pointer' }} onChange={() => window.importCSV?.()} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">O pega el CSV aquí</label>
+              <textarea id="csv-input" className="form-control" rows={4} placeholder={"agente,dia,turno\nAna García,1,A\nCarlos López,1,B"} style={{ fontFamily: 'monospace', fontSize: 12 }} />
+            </div>
+            <div id="csv-error" style={{ color: '#fca5a5', fontSize: 12, marginBottom: 8 }}></div>
+            <div id="csv-preview" style={{ marginBottom: 12 }}></div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => window.closeModal?.('modal-import')}>Cancelar</button>
+              <button className="btn btn-ghost" onClick={() => window.importCSV?.()}>🔍 Previsualizar</button>
+              <button className="btn btn-primary" id="btn-import-confirm" style={{ display: 'none' }} onClick={() => window.confirmImport?.()}>✓ Importar horario</button>
+            </div>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">O pega el CSV aquí</label>
-            <textarea id="csv-input" className="form-control" rows={5} placeholder={"agente,dia,turno\nAna García,1,A\nCarlos López,1,B"} style={{ fontFamily: 'monospace', fontSize: 12 }} />
+          {/* Tab Foto */}
+          <div id="import-tab-foto" style={{ display: 'none' }}>
+            <div style={{ background: '#0a0f1e', border: '1px solid #1e2d45', borderRadius: 8, padding: '12px 16px', marginBottom: 16, fontSize: 12, color: '#6b8099', lineHeight: 1.6 }}>
+              📷 Sube una foto del horario físico (pizarra, papel, Excel…) y la IA extraerá los turnos automáticamente.
+            </div>
+            <div className="form-group">
+              <label className="form-label">Selecciona imagen</label>
+              <input type="file" id="foto-file-input" accept="image/*" className="form-control" style={{ cursor: 'pointer' }} onChange={() => window.previewFoto?.()} />
+            </div>
+            <div id="foto-preview-wrap" style={{ display: 'none', marginBottom: 12, textAlign: 'center' }}>
+              <img id="foto-preview-img" src="" alt="preview" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, border: '1px solid #1e2d45' }} />
+            </div>
+            <div id="foto-error" style={{ color: '#fca5a5', fontSize: 12, marginBottom: 8 }}></div>
+            <div id="foto-result" style={{ marginBottom: 12 }}></div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => window.closeModal?.('modal-import')}>Cancelar</button>
+              <button className="btn btn-ghost" id="btn-foto-analizar" style={{ display: 'none' }} onClick={() => window.analizarFoto?.()}>🔍 Analizar con IA</button>
+              <button className="btn btn-primary" id="btn-foto-confirm" style={{ display: 'none' }} onClick={() => window.confirmFoto?.()}>✓ Importar horario</button>
+            </div>
           </div>
 
-          <div id="csv-error" style={{ color: '#fca5a5', fontSize: 12, marginBottom: 8 }}></div>
-          <div id="csv-preview" style={{ marginBottom: 12 }}></div>
-
-          <div className="modal-actions">
-            <button className="btn btn-ghost" onClick={() => window.closeModal?.('modal-import')}>Cancelar</button>
-            <button className="btn btn-ghost" onClick={() => window.importCSV?.()}>🔍 Previsualizar</button>
-            <button className="btn btn-primary" id="btn-import-confirm" style={{ display: 'none' }} onClick={() => window.confirmImport?.()}>✓ Importar horario</button>
-          </div>
         </div>
       </div>
 
