@@ -1086,7 +1086,7 @@ function setVoiceOverlay(text, mode) {
   }
   el.style.display = 'block';
   if (mode === 'listening') {
-    el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:10px;"><span class="voice-dot"></span><span style="color:#a5b4fc;font-weight:500;">Di tu comando…</span></div><div style="font-size:11px;color:#6b8099;margin-top:6px;">"turno A Ana día 15" · "backup Carlos" · "guardar"</div>`;
+    el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:10px;"><span class="voice-dot"></span><span style="color:#a5b4fc;font-weight:500;">Di tu comando…</span></div><div style="font-size:11px;color:#6b8099;margin-top:6px;">"Ana turno A del 1 al 10" · "Carlos libre los lunes" · "guardar"</div>`;
   } else {
     el.innerHTML = `<div style="font-size:11px;color:#6b8099;margin-bottom:4px;">Detectado</div><div style="font-weight:500;">${text}</div>`;
   }
@@ -1099,32 +1099,104 @@ function hideVoiceOverlay() {
 
 const norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
+// Nombres de días de semana → índice (0=lun … 6=dom)
+const DOW_MAP = { lunes:1, martes:2, miercoles:3, jueves:4, viernes:5, sabado:6, domingo:0 };
+
 function findAgent(t) {
   const agents = MODULES[currentModule].agents;
   let best = null, bestScore = 0;
   agents.forEach(a => {
     let score = 0;
-    norm(a).split(' ').forEach(w => { if (w.length > 2 && norm(t).includes(w)) score++; });
+    norm(a).split(' ').forEach(w => { if (w.length > 2 && norm(t).includes(w)) score += 2; });
+    // también primer nombre suelto
+    const first = norm(a.split(' ')[0]);
+    if (first.length > 2 && norm(t).includes(first)) score++;
     if (score > bestScore) { bestScore = score; best = a; }
   });
   return bestScore > 0 ? best : null;
 }
 
-function findDay(t) {
-  const m = norm(t).match(/dia\s+(\d{1,2})|el\s+dia\s+(\d{1,2})|el\s+(\d{1,2})\b|numero\s+(\d{1,2})|(\d{1,2})/);
-  if (!m) return null;
-  const d = parseInt(m[1] || m[2] || m[3] || m[4] || m[5]);
-  return (d >= 1 && d <= getDaysInMonth(currentYear, currentMonth)) ? d : null;
+function findAllAgents(t) {
+  const agents = MODULES[currentModule].agents;
+  return agents.filter(a => {
+    return norm(a).split(' ').some(w => w.length > 2 && norm(t).includes(w));
+  });
+}
+
+// Devuelve array de números de día según el texto
+function resolveDays(t) {
+  const total = getDaysInMonth(currentYear, currentMonth);
+  const days = [];
+
+  // "toda la semana" / "todo el mes" / "todos los días"
+  if (/toda la semana|todos los dias|todo el mes/.test(t)) {
+    for (let d = 1; d <= total; d++) days.push(d);
+    return [...new Set(days)];
+  }
+
+  // "del X al Y" / "desde el X hasta el Y"
+  const rangeM = t.match(/(?:del|desde el?)\s+(\d{1,2})\s+(?:al|hasta el?)\s+(\d{1,2})/);
+  if (rangeM) {
+    const from = parseInt(rangeM[1]), to = parseInt(rangeM[2]);
+    for (let d = Math.min(from,to); d <= Math.min(Math.max(from,to), total); d++) days.push(d);
+  }
+
+  // "los lunes" / "los martes y jueves" / "de lunes a viernes"
+  const rangeDow = t.match(/de\s+(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\s+a\s+(lunes|martes|miercoles|jueves|viernes|sabado|domingo)/);
+  if (rangeDow) {
+    const start = DOW_MAP[rangeDow[1]], end = DOW_MAP[rangeDow[2]];
+    for (let d = 1; d <= total; d++) {
+      const dow = getDayOfWeek(currentYear, currentMonth, d); // 0=lun
+      if (dow >= start - 1 && dow <= end - 1) days.push(d);
+    }
+  }
+
+  // días de semana nombrados: "el lunes", "los martes", "lunes y miércoles"
+  Object.entries(DOW_MAP).forEach(([name, dowVal]) => {
+    if (new RegExp(`\\b${name}\\b`).test(t)) {
+      for (let d = 1; d <= total; d++) {
+        // getDayOfWeek devuelve 0=lun…6=dom
+        if (getDayOfWeek(currentYear, currentMonth, d) === dowVal - 1) days.push(d);
+      }
+    }
+  });
+
+  // días numéricos sueltos: "el 3", "día 15", "días 5 y 12"
+  const numMatches = t.matchAll(/\b(\d{1,2})\b/g);
+  for (const m of numMatches) {
+    const d = parseInt(m[1]);
+    if (d >= 1 && d <= total) days.push(d);
+  }
+
+  return [...new Set(days)].sort((a,b) => a-b);
+}
+
+function detectShift(t) {
+  if (/turno\s*a\b|turno mañana|mañana(?!na)|turno de mañana/.test(t)) return 'A';
+  if (/turno\s*b\b|turno tarde|tarde|turno de tarde/.test(t)) return 'B';
+  if (/\blibre\b|descanso|\boff\b|dia libre/.test(t)) return 'OFF';
+  if (/ausente|ausencia/.test(t)) return 'AUS';
+  if (/busqueda|en busqueda/.test(t)) return 'BUS';
+  return null;
+}
+
+function applyShiftToGrid(agent, days, shift) {
+  if (!editMode) activarEdicion();
+  days.forEach(d => { schedules[currentModule][getKey(agent, d)] = shift; });
+  marcarPendiente();
+  renderGrid();
 }
 
 function processVoiceCommand(raw) {
   const t = norm(raw);
+
+  // ── Comandos de sistema ──
   if (/editar|modo edicion/.test(t)) { activarEdicion(); showToast('🎤 Modo edición activado', 'success'); return; }
   if (/guardar/.test(t)) { guardarCambios(); return; }
   if (/cancelar/.test(t)) { cancelarEdicion(); return; }
   if (/generar|aleatorio/.test(t)) { generateRandom(); return; }
   if (/replicar|copiar mes/.test(t)) { cloneLastMonth(); return; }
-  if (/vista.*hoy|hoy/.test(t)) { toggleTodayView(); return; }
+  if (/vista.*hoy/.test(t)) { toggleTodayView(); return; }
 
   const modMap = [[/modulo\s*a|banca/, 0], [/modulo\s*b|seguros/, 1], [/modulo\s*c|telco/, 2]];
   for (const [re, idx] of modMap) {
@@ -1139,7 +1211,7 @@ function processVoiceCommand(raw) {
 
   if (/backup/.test(t)) {
     const agent = findAgent(t);
-    if (!agent) { showToast('🎤 No reconocí el agente — di el nombre más claro', 'warning'); return; }
+    if (!agent) { showToast('🎤 No reconocí el agente', 'warning'); return; }
     const quitar = /quitar|eliminar|borrar/.test(t);
     if (quitar) delete backupAgents[currentModule][agent];
     else backupAgents[currentModule][agent] = true;
@@ -1149,31 +1221,41 @@ function processVoiceCommand(raw) {
     return;
   }
 
-  const shiftKw = [[/turno\s*a|manana|turno mañana/, 'A'], [/turno\s*b|tarde/, 'B'], [/libre|descanso|off/, 'OFF'], [/ausencia|ausente/, 'AUS']];
-  let shift = null;
-  for (const [re, val] of shiftKw) { if (re.test(t)) { shift = val; break; } }
+  if (/añadir|agregar|nuevo agente/.test(t)) { openModal('modal-agentes'); showToast('🎤 Panel de agentes', 'success'); return; }
 
-  if (shift) {
-    if (!editMode) activarEdicion();
-    const agent = findAgent(t);
-    const day = findDay(t);
-    if (agent && day) {
-      schedules[currentModule][getKey(agent, day)] = shift;
-      marcarPendiente();
-      renderGrid();
-      const labels = { A: 'Turno A (9–17h)', B: 'Turno B (11–20h)', OFF: 'Libre', AUS: 'Ausencia' };
-      showToast(`🎤 ${agent.split(' ')[0]} · día ${day} → ${labels[shift]}`, 'success');
-    } else if (!agent) {
-      showToast('🎤 No reconocí el agente. Di: "turno A [nombre] día [N]"', 'warning');
-    } else {
-      showToast(`🎤 ¿Qué día? Di: "turno A ${agent.split(' ')[0]} día 15"`, 'warning');
+  // ── Dictado de turnos (natural) ──
+  // Intenta procesar frases compuestas separadas por "y", "," o punto
+  // Ej: "Ana turno A del 1 al 5, Carlos libre los lunes"
+  const clauses = raw.split(/[,;]|\by\b(?=\s+[A-Z])/i).map(c => c.trim()).filter(Boolean);
+  let totalApplied = 0;
+
+  clauses.forEach(clause => {
+    const tc = norm(clause);
+    const shift = detectShift(tc);
+    if (!shift) return;
+    const agent = findAgent(tc);
+    if (!agent) return;
+    const days = resolveDays(tc);
+    if (days.length === 0) {
+      // sin días explícitos → día de hoy
+      const today = new Date().getDate();
+      const total = getDaysInMonth(currentYear, currentMonth);
+      if (today >= 1 && today <= total) days.push(today);
     }
+    applyShiftToGrid(agent, days, shift);
+    const labels = { A:'Turno A', B:'Turno B', OFF:'Libre', AUS:'Ausencia', BUS:'En búsqueda' };
+    showToast(`🎤 ${agent.split(' ')[0]} · ${days.length === 1 ? `día ${days[0]}` : `${days.length} días`} → ${labels[shift]}`, 'success');
+    totalApplied++;
+  });
+
+  if (totalApplied > 0) return;
+
+  if (/ayuda|comandos/.test(t)) {
+    showToast('🎤 Ejemplos: "Ana turno A del 1 al 10" · "Carlos libre los lunes" · "María ausente día 15" · "guardar"', 'success');
     return;
   }
 
-  if (/añadir|agregar|nuevo agente/.test(t)) { openModal('modal-agentes'); showToast('🎤 Panel de agentes', 'success'); return; }
-  if (/ayuda|comandos/.test(t)) { showToast('🎤 Comandos: "turno A [nombre] día [N]" · "backup [nombre]" · "generar" · "guardar" · "módulo banca"', 'success'); return; }
-  showToast(`🎤 No entendí: "${raw}" — Di "ayuda" para ver comandos`, 'warning');
+  showToast(`🎤 No entendí: "${raw.substring(0,40)}" — Di "ayuda" para ejemplos`, 'warning');
 }
 
 // ===== EXPOSE GLOBALLY (needed for inline onclick handlers) =====
