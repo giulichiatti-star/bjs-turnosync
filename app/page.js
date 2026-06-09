@@ -24,7 +24,7 @@ let schedules = [{}, {}, {}];
 let backupAgents = [{}, {}, {}];
 let historialData = {};
 let currentUser = null;
-let jefeConfig = { nombre: '', email: '', telefono: '' };
+let jefeConfig = JSON.parse(typeof localStorage !== 'undefined' && localStorage.getItem('bjsJefeConfig') || 'null') || { nombre: '', email: '', telefono: '' };
 let alertaCtx = { agente: null, day: null };
 let editMode = false;
 let pendingChanges = false;
@@ -553,6 +553,7 @@ function guardarConfig() {
   if (!jefeConfig.nombre || (!jefeConfig.email && !jefeConfig.telefono)) {
     showToast('Completa al menos nombre + email o teléfono', 'error'); return;
   }
+  if (typeof localStorage !== 'undefined') localStorage.setItem('bjsJefeConfig', JSON.stringify(jefeConfig));
   closeModal('modal-config');
   showToast(`✓ Jefe guardado: ${jefeConfig.nombre}`, 'success');
   actualizarPreview();
