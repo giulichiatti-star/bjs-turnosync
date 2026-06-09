@@ -2204,6 +2204,25 @@ export default function Home() {
         </div>
       </div>
 
+      {/* MOBILE NAV BAR */}
+      <nav className="mobile-nav" id="mobileNav">
+        <button onClick={() => window.openModal?.('modal-ausencia')}>
+          <span className="nav-icon">⚠️</span>Ausencia
+        </button>
+        <button onClick={() => window.openModal?.('modal-cambio')}>
+          <span className="nav-icon">⇄</span>Cambio
+        </button>
+        <button onClick={() => window.openModal?.('modal-alerta')} className="nav-alert">
+          <span className="nav-icon">🔔</span>Alertar
+        </button>
+        <button onClick={() => window.openModal?.('modal-agentes')}>
+          <span className="nav-icon">👤</span>Agentes
+        </button>
+        <button onClick={() => window.openModal?.('modal-ayuda')}>
+          <span className="nav-icon">❓</span>Ayuda
+        </button>
+      </nav>
+
       {/* FOOTER */}
       <footer style={{ textAlign: 'center', padding: '18px 24px', fontSize: 11, color: 'var(--muted)', borderTop: '1px solid var(--border)', marginTop: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, flexWrap: 'wrap' }}>
         <span>© 2026 BJS TurnoSync · BJS Legal Services España</span>
