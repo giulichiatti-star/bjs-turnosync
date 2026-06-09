@@ -33,6 +33,7 @@ let todayViewOpen = false;
 let panelAgent = null;
 let activePanelTab = 'estadisticas';
 let agentesMod = 0;
+let agentesInfo = [{}, {}, {}]; // { "Nombre": { email, tel } } por módulo
 let recognition = null;
 let voiceActive = false;
 
@@ -61,10 +62,12 @@ async function dbLoadAll() {
     if (agentsData && agentsData.length > 0) {
       MODULES.forEach(m => m.agents = []);
       backupAgents = [{}, {}, {}];
+      agentesInfo = [{}, {}, {}];
       agentsData.forEach(a => {
         const idx = a.module_idx;
         if (!MODULES[idx].agents.includes(a.name)) MODULES[idx].agents.push(a.name);
         if (a.is_backup) backupAgents[idx][a.name] = true;
+        if (a.email || a.tel) agentesInfo[idx][a.name] = { email: a.email || '', tel: a.tel || '' };
       });
     } else {
       await dbSeedAgents();
@@ -107,8 +110,8 @@ async function dbSaveAllShifts(modIdx) {
   await sb.from('schedules').upsert(rows, { onConflict: 'module_idx,agent_name,year,month,day' });
 }
 
-async function dbSaveAgent(name, modIdx) {
-  await sb.from('agents').insert({ name, module_idx: modIdx, is_backup: false });
+async function dbSaveAgent(name, modIdx, email = '', tel = '') {
+  await sb.from('agents').insert({ name, module_idx: modIdx, is_backup: false, email, tel });
 }
 
 async function dbDeleteAgent(name, modIdx) {
@@ -604,17 +607,55 @@ function enviarAlerta() {
   showToast(`🔔 Enviando alerta: "${tipo}"`, 'error');
 
   let delay = 300;
+
+  // WhatsApp
   if (jefeConfig.telefono && (canal.includes('WhatsApp') || canal === 'Email + WhatsApp')) {
     const tel = jefeConfig.telefono.replace(/\s|\+/g, '');
     const waUrl = `https://wa.me/${tel}?text=${encodeURIComponent(msgCorto)}`;
     setTimeout(() => { window.open(waUrl, '_blank'); showToast(`📱 WhatsApp abierto para ${jefeConfig.nombre || jefeConfig.telefono}`, 'success'); }, delay);
     delay += 600;
   }
+
+  // Email real via Resend
   if (jefeConfig.email && canal.includes('Email')) {
-    const mailUrl = `mailto:${jefeConfig.email}?subject=${encodeURIComponent('🔔 Alerta TurnoSync — ' + tipo)}&body=${encodeURIComponent(msgEmail)}`;
-    setTimeout(() => { window.open(mailUrl, '_blank'); showToast(`📧 Email preparado para ${jefeConfig.email}`, 'success'); }, delay);
+    const htmlBody = `
+      <div style="font-family:Inter,sans-serif;background:#0a0f1e;color:#f0f4ff;padding:32px;border-radius:12px;max-width:520px;">
+        <div style="font-size:22px;font-weight:800;margin-bottom:4px;"><span style="color:#48b4e0;">BJS</span> TurnoSync</div>
+        <div style="font-size:13px;color:#6b8099;margin-bottom:24px;">Sistema de gestión de turnos</div>
+        <div style="background:#111827;border:1px solid #1e2d45;border-radius:10px;padding:20px;margin-bottom:16px;">
+          <div style="font-size:11px;font-weight:700;color:#6b8099;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:14px;">🔔 Alerta de turno</div>
+          <div style="margin-bottom:10px;"><span style="color:#6b8099;font-size:12px;">Tipo</span><br><strong style="font-size:14px;">${tipo}</strong></div>
+          <div style="margin-bottom:10px;"><span style="color:#6b8099;font-size:12px;">Agente afectado</span><br><strong style="font-size:14px;">${agente}</strong></div>
+          <div style="margin-bottom:10px;"><span style="color:#6b8099;font-size:12px;">Módulo</span><br><strong style="font-size:14px;">${MODULES[currentModule].name}</strong></div>
+          <div><span style="color:#6b8099;font-size:12px;">Hora</span><br><strong style="font-size:14px;">${ahora}</strong></div>
+        </div>
+        <div style="background:#7c4a00;border:1px solid #92400e;border-radius:8px;padding:12px;font-size:13px;color:#fde68a;">
+          ⏱ Si no respondes en ${escalado} min el sistema contactará a agentes backup.
+        </div>
+        <div style="margin-top:20px;font-size:11px;color:#6b8099;">BJS TurnoSync · BJS Legal Services España</div>
+      </div>`;
+
+    setTimeout(async () => {
+      try {
+        const res = await fetch('/api/send-alert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: jefeConfig.email,
+            subject: `🔔 Alerta TurnoSync — ${tipo}`,
+            html: htmlBody,
+          }),
+        });
+        const result = await res.json();
+        if (result.success) showToast(`📧 Email enviado a ${jefeConfig.email}`, 'success');
+        else showToast(`⚠ Error al enviar email: ${result.error}`, 'error');
+      } catch (e) {
+        showToast('⚠ Error de conexión al enviar email', 'error');
+      }
+    }, delay);
     delay += 600;
   }
+
   if (!jefeConfig.email && !jefeConfig.telefono)
     showToast('⚠ Sin contacto configurado — ve a ⚙ Configurar alertas', 'warning');
 
@@ -728,7 +769,9 @@ function getAgentHist(agent) {
 function openPanel(agent, moduleIdx) {
   panelAgent = agent;
   document.getElementById('panelAgentName').textContent = agent;
-  document.getElementById('panelAgentMeta').textContent = `${MODULES[moduleIdx].name} · Agente`;
+  const info = agentesInfo[moduleIdx]?.[agent] || {};
+  const meta = [MODULES[moduleIdx].name + ' · Agente', info.email, info.tel].filter(Boolean).join(' · ');
+  document.getElementById('panelAgentMeta').textContent = meta;
   document.getElementById('sidePanel').classList.add('open');
   document.getElementById('panelBackdrop').classList.add('open');
   dbLoadHistorial(agent).then(() => renderPanelTab('estadisticas'));
@@ -876,24 +919,35 @@ function renderAgentesModal() {
   if (!el) return;
   el.innerHTML = agents.length === 0
     ? `<div style="color:var(--muted);font-size:13px;padding:8px;">Sin agentes en este módulo.</div>`
-    : agents.map((agent, i) => `
+    : agents.map((agent, i) => {
+      const info = agentesInfo[agentesMod]?.[agent] || {};
+      return `
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-radius:9px;background:var(--bg);border:1px solid var(--border);">
       <div style="display:flex;align-items:center;gap:10px;">
         <div style="width:30px;height:30px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--muted);">${agent.split(' ').map(w => w[0]).join('').slice(0, 2)}</div>
-        <div><div style="font-size:13px;font-weight:500;">${agent}</div><div style="font-size:11px;color:var(--muted);">${MODULES[agentesMod].name} · Agente ${i + 1}</div></div>
+        <div>
+          <div style="font-size:13px;font-weight:500;">${agent}</div>
+          <div style="font-size:11px;color:var(--muted);">${MODULES[agentesMod].name} · Agente ${i + 1}</div>
+          ${info.email ? `<div style="font-size:11px;color:var(--muted);">📧 ${info.email}</div>` : ''}
+          ${info.tel ? `<div style="font-size:11px;color:var(--muted);">📱 ${info.tel}</div>` : ''}
+        </div>
       </div>
       <button onclick="removeAgente(${i})" style="width:28px;height:28px;border-radius:7px;background:rgba(127,29,29,0.3);border:1px solid rgba(127,29,29,0.5);color:#fca5a5;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">×</button>
-    </div>`).join('');
+    </div>`;
+    }).join('');
 }
 
 function addAgente() {
   const name = document.getElementById('new-agent-name').value.trim();
+  const email = document.getElementById('new-agent-email').value.trim();
+  const tel = document.getElementById('new-agent-tel').value.trim();
   const modIdx = parseInt(document.getElementById('new-agent-module').value);
   if (!name) { showToast('Escribe el nombre del agente', 'error'); return; }
   if (MODULES[modIdx].agents.includes(name)) { showToast('Ya existe un agente con ese nombre', 'error'); return; }
   MODULES[modIdx].agents.push(name);
-  dbSaveAgent(name, modIdx);
-  document.getElementById('new-agent-name').value = '';
+  if (email || tel) agentesInfo[modIdx][name] = { email, tel };
+  dbSaveAgent(name, modIdx, email, tel);
+  ['new-agent-name','new-agent-email','new-agent-tel'].forEach(id => document.getElementById(id).value = '');
   agentesMod = modIdx;
   document.querySelectorAll('#agentes-mod-tabs button').forEach((b, i) => {
     b.className = i === modIdx ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
@@ -1470,10 +1524,14 @@ export default function Home() {
           <div className="modal-sub">Añade o elimina agentes por módulo.</div>
           <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--muted)', marginBottom: 12 }}>Añadir nuevo agente</div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-              <div style={{ flex: 1 }}><label className="form-label">Nombre completo</label><input type="text" className="form-control" id="new-agent-name" placeholder="Ej: Carmen Vidal" /></div>
-              <div style={{ width: 170 }}><label className="form-label">Módulo</label><select className="form-control" id="new-agent-module"><option value="0">Módulo A</option><option value="1">Módulo B</option><option value="2">Módulo C</option></select></div>
-              <button className="btn btn-primary btn-sm" style={{ flexShrink: 0, height: 36 }} onClick={() => window.addAgente?.()}>＋ Añadir</button>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+              <div><label className="form-label">Nombre completo</label><input type="text" className="form-control" id="new-agent-name" placeholder="Ej: Carmen Vidal" /></div>
+              <div><label className="form-label">Módulo</label><select className="form-control" id="new-agent-module"><option value="0">Módulo A</option><option value="1">Módulo B</option><option value="2">Módulo C</option></select></div>
+              <div><label className="form-label">Email</label><input type="email" className="form-control" id="new-agent-email" placeholder="agente@bjslegal.com" /></div>
+              <div><label className="form-label">Teléfono</label><input type="tel" className="form-control" id="new-agent-tel" placeholder="+34 600 000 000" /></div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-primary btn-sm" onClick={() => window.addAgente?.()}>＋ Añadir</button>
             </div>
           </div>
           <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--muted)', marginBottom: 10 }}>Agentes actuales</div>
