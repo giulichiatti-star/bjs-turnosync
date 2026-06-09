@@ -1215,6 +1215,132 @@ if (typeof window !== 'undefined') {
   window.removeJefe = removeJefe;
   window.cloneLastMonth = cloneLastMonth;
   window.generateRandom = generateRandom;
+  window.openImportModal = openImportModal;
+  window.importCSV = importCSV;
+  window.downloadPlantilla = downloadPlantilla;
+  window.confirmImport = confirmImport;
+}
+
+// ===== CSV IMPORT =====
+function openImportModal() {
+  document.getElementById('csv-input').value = '';
+  document.getElementById('csv-preview').innerHTML = '';
+  document.getElementById('csv-error').textContent = '';
+  document.getElementById('btn-import-confirm').style.display = 'none';
+  openModal('modal-import');
+}
+
+function downloadPlantilla() {
+  const agents = MODULES[currentModule].agents;
+  const days = getDaysInMonth(currentYear, currentMonth);
+  const rows = ['agente,dia,turno'];
+  agents.forEach(a => {
+    for (let d = 1; d <= days; d++) {
+      const dow = getDayOfWeek(currentYear, currentMonth, d);
+      rows.push(`${a},${d},${dow >= 5 ? 'OFF' : 'A'}`);
+    }
+  });
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `plantilla_turnos_${MODULES[currentModule].name.replace(/\s/g,'_')}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function importCSV() {
+  const file = document.getElementById('csv-file-input').files[0];
+  const text = document.getElementById('csv-input').value.trim();
+  const errEl = document.getElementById('csv-error');
+  const previewEl = document.getElementById('csv-preview');
+  const confirmBtn = document.getElementById('btn-import-confirm');
+  errEl.textContent = '';
+  previewEl.innerHTML = '';
+  confirmBtn.style.display = 'none';
+
+  const raw = file ? null : text;
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = e => parseAndPreviewCSV(e.target.result);
+    reader.readAsText(file);
+    return;
+  }
+  if (!raw) { errEl.textContent = 'Pega el CSV o sube un archivo.'; return; }
+  parseAndPreviewCSV(raw);
+}
+
+let csvParsed = null;
+
+function parseAndPreviewCSV(raw) {
+  const errEl = document.getElementById('csv-error');
+  const previewEl = document.getElementById('csv-preview');
+  const confirmBtn = document.getElementById('btn-import-confirm');
+  const agents = MODULES[currentModule].agents.map(a => a.toLowerCase());
+  const validShifts = ['A', 'B', 'OFF', 'AUS', 'BUS'];
+  const days = getDaysInMonth(currentYear, currentMonth);
+
+  const lines = raw.trim().split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) { errEl.textContent = 'El archivo está vacío o no tiene datos.'; return; }
+
+  // Detect separator
+  const sep = lines[0].includes(';') ? ';' : ',';
+  const header = lines[0].split(sep).map(h => h.trim().toLowerCase());
+  const iAgente = header.findIndex(h => h.includes('agent') || h.includes('nombre'));
+  const iDia = header.findIndex(h => h.includes('dia') || h.includes('día') || h.includes('day'));
+  const iTurno = header.findIndex(h => h.includes('turno') || h.includes('shift'));
+
+  if (iAgente < 0 || iDia < 0 || iTurno < 0) {
+    errEl.textContent = 'Columnas no reconocidas. Usa: agente, dia, turno';
+    return;
+  }
+
+  const result = {};
+  const errors = [];
+  let ok = 0;
+
+  lines.slice(1).forEach((line, i) => {
+    const cols = line.split(sep).map(c => c.trim());
+    const agente = cols[iAgente] || '';
+    const dia = parseInt(cols[iDia]);
+    const turno = (cols[iTurno] || '').toUpperCase();
+
+    const matchedAgent = MODULES[currentModule].agents.find(a =>
+      norm(a).includes(norm(agente)) || norm(agente).includes(norm(a.split(' ')[0]))
+    );
+
+    if (!matchedAgent) { errors.push(`Fila ${i+2}: agente no encontrado — "${agente}"`); return; }
+    if (!dia || dia < 1 || dia > days) { errors.push(`Fila ${i+2}: día inválido — ${cols[iDia]}`); return; }
+    if (!validShifts.includes(turno)) { errors.push(`Fila ${i+2}: turno inválido — "${turno}" (usa A, B, OFF, AUS, BUS)`); return; }
+
+    result[getKey(matchedAgent, dia)] = turno;
+    ok++;
+  });
+
+  if (ok === 0) { errEl.textContent = 'No se pudo leer ninguna fila válida.'; return; }
+
+  csvParsed = result;
+
+  // Preview
+  const errCount = errors.length;
+  previewEl.innerHTML = `
+    <div style="color:#86efac;font-size:13px;margin-bottom:8px;">✓ ${ok} turnos listos para importar${errCount ? ` · <span style="color:#fca5a5">${errCount} errores ignorados</span>` : ''}</div>
+    ${errors.slice(0,3).map(e => `<div style="color:#fca5a5;font-size:11px;">${e}</div>`).join('')}
+    ${errCount > 3 ? `<div style="color:#6b8099;font-size:11px;">…y ${errCount-3} más</div>` : ''}
+  `;
+  confirmBtn.style.display = 'inline-flex';
+}
+
+function confirmImport() {
+  if (!csvParsed) return;
+  if (!editMode) activarEdicion();
+  Object.assign(schedules[currentModule], csvParsed);
+  csvParsed = null;
+  marcarPendiente();
+  renderGrid();
+  updateStats();
+  closeModal('modal-import');
+  showToast('📥 Horario importado — pulsa Guardar para confirmar', 'success');
 }
 
 // ===== REACT COMPONENT =====
@@ -1327,6 +1453,7 @@ export default function Home() {
           </div>
         </div>
         <div className="toolbar-right">
+          <button className="btn btn-ghost btn-sm" onClick={() => window.openImportModal?.()}>📥 Importar</button>
           <button className="btn btn-ghost btn-sm" id="btnVoz" onClick={() => window.toggleVoice?.()}>🎤 Voz</button>
           <button className="btn btn-ghost btn-sm" id="btnToday" onClick={() => window.toggleTodayView?.()}>📅 Vista de hoy</button>
           <button className="btn btn-ghost btn-sm" id="btnBackups" onClick={() => window.openModal?.('modal-backups')} style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)' }}>🟠 Backups</button>
@@ -1514,6 +1641,40 @@ export default function Home() {
           <div className="modal-actions" style={{ marginTop: 20 }}>
             <button className="btn btn-ghost" onClick={() => window.closeModal?.('modal-backups')}>Cerrar</button>
             <button className="btn btn-primary" onClick={() => { window.closeModal?.('modal-backups'); showToast('Backups guardados ✓', 'success'); }}>Guardar</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Modal Importar CSV */}
+      <div className="overlay" id="modal-import">
+        <div className="modal" style={{ width: 520 }}>
+          <div className="modal-title">📥 Importar horario</div>
+          <div className="modal-sub">Sube un archivo CSV o pega el contenido directamente.</div>
+
+          <div style={{ background: '#0a0f1e', border: '1px solid #1e2d45', borderRadius: 8, padding: '12px 16px', marginBottom: 16, fontSize: 12, color: '#6b8099', lineHeight: 1.7 }}>
+            <strong style={{ color: '#f0f4ff' }}>Formato esperado:</strong><br/>
+            Columnas: <code style={{ color: '#48b4e0' }}>agente, dia, turno</code><br/>
+            Turnos válidos: <code style={{ color: '#48b4e0' }}>A · B · OFF · AUS · BUS</code><br/>
+            <button className="btn btn-ghost btn-sm" style={{ marginTop: 8, fontSize: 11 }} onClick={() => window.downloadPlantilla?.()}>⬇ Descargar plantilla del mes actual</button>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Subir archivo .csv</label>
+            <input type="file" id="csv-file-input" accept=".csv,text/csv" className="form-control" style={{ cursor: 'pointer' }} onChange={() => window.importCSV?.()} />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">O pega el CSV aquí</label>
+            <textarea id="csv-input" className="form-control" rows={5} placeholder={"agente,dia,turno\nAna García,1,A\nCarlos López,1,B"} style={{ fontFamily: 'monospace', fontSize: 12 }} />
+          </div>
+
+          <div id="csv-error" style={{ color: '#fca5a5', fontSize: 12, marginBottom: 8 }}></div>
+          <div id="csv-preview" style={{ marginBottom: 12 }}></div>
+
+          <div className="modal-actions">
+            <button className="btn btn-ghost" onClick={() => window.closeModal?.('modal-import')}>Cancelar</button>
+            <button className="btn btn-ghost" onClick={() => window.importCSV?.()}>🔍 Previsualizar</button>
+            <button className="btn btn-primary" id="btn-import-confirm" style={{ display: 'none' }} onClick={() => window.confirmImport?.()}>✓ Importar horario</button>
           </div>
         </div>
       </div>
