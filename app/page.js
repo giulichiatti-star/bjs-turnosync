@@ -1258,6 +1258,81 @@ function processVoiceCommand(raw) {
   showToast(`🎤 No entendí: "${raw.substring(0,40)}" — Di "ayuda" para ejemplos`, 'warning');
 }
 
+// ===== AYUDA / CONTACTO =====
+function switchAyudaTab(tab) {
+  document.getElementById('ayuda-tab-faq').style.display = tab === 'faq' ? '' : 'none';
+  document.getElementById('ayuda-tab-contacto').style.display = tab === 'contacto' ? '' : 'none';
+  document.getElementById('faq-actions').style.display = tab === 'faq' ? '' : 'none';
+  document.getElementById('tab-faq').className = tab === 'faq' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+  document.getElementById('tab-contacto').className = tab === 'contacto' ? 'btn btn-primary btn-sm' : 'btn btn-ghost btn-sm';
+  document.getElementById('tab-faq').style.flex = '1';
+  document.getElementById('tab-contacto').style.flex = '1';
+  document.getElementById('tab-faq').style.fontSize = '13px';
+  document.getElementById('tab-contacto').style.fontSize = '13px';
+}
+
+async function enviarContacto() {
+  const nombre = document.getElementById('contacto-nombre').value.trim();
+  const email = document.getElementById('contacto-email').value.trim();
+  const mensaje = document.getElementById('contacto-mensaje').value.trim();
+  const statusEl = document.getElementById('contacto-status');
+  if (!nombre || !email || !mensaje) { statusEl.style.color = '#fca5a5'; statusEl.textContent = 'Completa todos los campos.'; return; }
+  statusEl.style.color = '#6b8099'; statusEl.textContent = 'Enviando…';
+  try {
+    const html = `<div style="font-family:Inter,sans-serif;padding:24px;background:#0a0f1e;color:#f0f4ff;border-radius:10px;max-width:500px;">
+      <div style="font-size:18px;font-weight:800;margin-bottom:16px;"><span style="color:#48b4e0;">BJS</span> TurnoSync — Consulta de usuario</div>
+      <p><strong>Nombre:</strong> ${nombre}</p>
+      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>Mensaje:</strong></p>
+      <p style="background:#111827;padding:12px;border-radius:8px;color:#a5b4fc;">${mensaje.replace(/\n/g,'<br>')}</p>
+    </div>`;
+    const res = await fetch('/api/send-alert', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ to: 'giulichiatti@gmail.com', subject: `💬 Consulta TurnoSync — ${nombre}`, html }) });
+    const r = await res.json();
+    if (r.success) { statusEl.style.color = '#86efac'; statusEl.textContent = '✓ Mensaje enviado. Te responderemos pronto.'; document.getElementById('contacto-mensaje').value = ''; }
+    else { statusEl.style.color = '#fca5a5'; statusEl.textContent = `Error: ${r.error}`; }
+  } catch(e) { statusEl.style.color = '#fca5a5'; statusEl.textContent = `Error: ${e.message}`; }
+}
+
+// ===== ERROR MONITORING =====
+const CRITICAL_ERRORS_SENT = new Set();
+
+async function sendCriticalError(msg, source) {
+  const key = msg.substring(0, 80);
+  if (CRITICAL_ERRORS_SENT.has(key)) return; // no spam
+  CRITICAL_ERRORS_SENT.add(key);
+  try {
+    const html = `<div style="font-family:Inter,sans-serif;padding:24px;background:#0a0f1e;color:#f0f4ff;border-radius:10px;max-width:500px;">
+      <div style="font-size:18px;font-weight:800;color:#fca5a5;margin-bottom:16px;">🚨 Error crítico — BJS TurnoSync</div>
+      <p><strong>Origen:</strong> ${source}</p>
+      <p><strong>Error:</strong></p>
+      <p style="background:#7f1d1d;padding:12px;border-radius:8px;font-family:monospace;font-size:12px;">${msg}</p>
+      <p style="color:#6b8099;font-size:11px;">Hora: ${new Date().toLocaleString('es-ES')}</p>
+    </div>`;
+    await fetch('/api/send-alert', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ to: 'giulichiatti@gmail.com', subject: `🚨 Error crítico TurnoSync — ${source}`, html }) });
+  } catch(_) {}
+}
+
+function isCriticalError(msg) {
+  if (!msg) return false;
+  const m = msg.toLowerCase();
+  return m.includes('supabase') || m.includes('fetch') || m.includes('auth') ||
+    m.includes('database') || m.includes('network') || m.includes('unauthorized') ||
+    m.includes('500') || m.includes('failed to load') || m.includes('cannot read') ||
+    m.includes('undefined is not') || m.includes('null is not');
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('error', e => {
+    if (isCriticalError(e.message)) sendCriticalError(e.message + '\n' + (e.filename || ''), 'window.onerror');
+  });
+  window.addEventListener('unhandledrejection', e => {
+    const msg = e.reason?.message || String(e.reason);
+    if (isCriticalError(msg)) sendCriticalError(msg, 'unhandledrejection');
+  });
+}
+
 // ===== EXPOSE GLOBALLY (needed for inline onclick handlers) =====
 if (typeof window !== 'undefined') {
   window.openModal = openModal;
@@ -1301,6 +1376,8 @@ if (typeof window !== 'undefined') {
   window.importCSV = importCSV;
   window.downloadPlantilla = downloadPlantilla;
   window.confirmImport = confirmImport;
+  window.switchAyudaTab = switchAyudaTab;
+  window.enviarContacto = enviarContacto;
   window.switchImportTab = switchImportTab;
   window.previewFoto = previewFoto;
   window.analizarFoto = analizarFoto;
@@ -2024,6 +2101,61 @@ export default function Home() {
               </div>
               <div id="listaAusencias"></div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* FOOTER */}
+      <footer style={{ textAlign: 'center', padding: '18px 24px', fontSize: 11, color: 'var(--muted)', borderTop: '1px solid var(--border)', marginTop: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <span>© 2026 BJS TurnoSync · BJS Legal Services España</span>
+        <a href="/privacidad" target="_blank" style={{ color: 'var(--accent-light)', textDecoration: 'none' }}>🔒 Política de privacidad (GDPR)</a>
+        <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 10px' }} onClick={() => window.openModal?.('modal-ayuda')}>❓ Ayuda / Contacto</button>
+      </footer>
+
+      {/* Modal Ayuda / FAQ / Contacto */}
+      <div className="overlay" id="modal-ayuda">
+        <div className="modal" style={{ width: 560 }}>
+          <div className="modal-title">❓ Ayuda y contacto</div>
+          <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: '#0a0f1e', borderRadius: 8, padding: 4 }}>
+            <button id="tab-faq" className="btn btn-primary btn-sm" style={{ flex: 1, fontSize: 13 }} onClick={() => window.switchAyudaTab?.('faq')}>📋 Preguntas frecuentes</button>
+            <button id="tab-contacto" className="btn btn-ghost btn-sm" style={{ flex: 1, fontSize: 13 }} onClick={() => window.switchAyudaTab?.('contacto')}>✉ Contactar soporte</button>
+          </div>
+
+          {/* FAQ */}
+          <div id="ayuda-tab-faq" style={{ maxHeight: 420, overflowY: 'auto' }}>
+            {[
+              ['¿Cómo añado un turno?', 'Pulsa "✏ Editar" y haz clic en cualquier celda del grid para cambiar el turno del agente en ese día.'],
+              ['¿Cómo importo un horario desde Excel o CSV?', 'Pulsa "📥 Importar" en el toolbar. Descarga la plantilla, rellénala y súbela. También puedes pegar el CSV directamente.'],
+              ['¿Puedo subir una foto del horario?', 'Sí. En "📥 Importar" elige la pestaña "📷 Foto", sube la imagen y la IA extraerá los turnos automáticamente.'],
+              ['¿Cómo uso los comandos de voz?', 'Pulsa "🎤 Voz" y habla de forma natural. Ejemplos: "Ana turno A del 1 al 10", "Carlos libre los lunes", "guardar".'],
+              ['¿Cómo reporto una ausencia?', 'Pulsa "⚠ Reportar ausencia" en el navbar. Se enviará una alerta automática al jefe de equipo.'],
+              ['¿Qué son los agentes backup?', 'Son agentes disponibles para cubrir turnos en caso de ausencia urgente. Márcalos desde el botón "🟠 Backups".'],
+              ['¿Cómo configuro las alertas al jefe?', 'Ve a "Jefes" → "Configurar alertas" y añade el email y teléfono del jefe.'],
+              ['¿La app cumple con el GDPR?', 'Sí. Todos los datos se almacenan en servidores europeos (Irlanda). Consulta nuestra política de privacidad en el footer.'],
+              ['¿Cómo elimino los datos de un agente?', 'Abre el panel del agente haciendo clic en su nombre → botón "Eliminar datos (GDPR Art.17)".'],
+            ].map(([q, a], i) => (
+              <div key={i} style={{ borderBottom: '1px solid var(--border)', padding: '12px 0' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4, color: 'var(--text)' }}>{q}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>{a}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Contacto */}
+          <div id="ayuda-tab-contacto" style={{ display: 'none' }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>¿Tienes alguna duda o problema? Envíanos un mensaje y te responderemos lo antes posible.</div>
+            <div className="form-group"><label className="form-label">Tu nombre</label><input type="text" className="form-control" id="contacto-nombre" placeholder="Ej: Ana García" /></div>
+            <div className="form-group"><label className="form-label">Tu email</label><input type="email" className="form-control" id="contacto-email" placeholder="tu@email.com" /></div>
+            <div className="form-group"><label className="form-label">Mensaje</label><textarea className="form-control" id="contacto-mensaje" rows={4} placeholder="Describe tu consulta o problema…" /></div>
+            <div id="contacto-status" style={{ fontSize: 12, marginBottom: 8 }}></div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => window.closeModal?.('modal-ayuda')}>Cerrar</button>
+              <button className="btn btn-primary" onClick={() => window.enviarContacto?.()}>✉ Enviar mensaje</button>
+            </div>
+          </div>
+
+          <div className="modal-actions" id="faq-actions">
+            <button className="btn btn-ghost" onClick={() => window.closeModal?.('modal-ayuda')}>Cerrar</button>
           </div>
         </div>
       </div>
