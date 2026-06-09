@@ -918,24 +918,55 @@ function renderAgentesModal() {
   const agents = MODULES[agentesMod].agents;
   const el = document.getElementById('agentes-list');
   if (!el) return;
-  el.innerHTML = agents.length === 0
-    ? `<div style="color:var(--muted);font-size:13px;padding:8px;">Sin agentes en este módulo.</div>`
-    : agents.map((agent, i) => {
-      const info = agentesInfo[agentesMod]?.[agent] || {};
-      return `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-radius:9px;background:var(--bg);border:1px solid var(--border);">
-      <div style="display:flex;align-items:center;gap:10px;">
-        <div style="width:30px;height:30px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--muted);">${agent.split(' ').map(w => w[0]).join('').slice(0, 2)}</div>
-        <div>
-          <div style="font-size:13px;font-weight:500;">${agent}</div>
-          <div style="font-size:11px;color:var(--muted);">${MODULES[agentesMod].name} · Agente ${i + 1}</div>
-          ${info.email ? `<div style="font-size:11px;color:var(--muted);">📧 ${info.email}</div>` : ''}
-          ${info.tel ? `<div style="font-size:11px;color:var(--muted);">📱 ${info.tel}</div>` : ''}
-        </div>
-      </div>
-      <button onclick="removeAgente(${i})" style="width:28px;height:28px;border-radius:7px;background:rgba(127,29,29,0.3);border:1px solid rgba(127,29,29,0.5);color:#fca5a5;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">×</button>
-    </div>`;
-    }).join('');
+  if (agents.length === 0) {
+    el.innerHTML = `<div style="color:var(--muted);font-size:13px;padding:8px;">Sin agentes en este módulo.</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr style="color:var(--muted);text-align:left;border-bottom:1px solid var(--border);">
+          <th style="padding:6px 8px;font-weight:600;">Agente</th>
+          <th style="padding:6px 8px;font-weight:600;">Email acceso</th>
+          <th style="padding:6px 8px;font-weight:600;">Teléfono</th>
+          <th style="padding:6px 8px;font-weight:600;width:60px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${agents.map((agent, i) => {
+          const info = agentesInfo[agentesMod]?.[agent] || {};
+          const initials = agent.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+          return `
+          <tr style="border-bottom:1px solid rgba(30,45,69,0.5);">
+            <td style="padding:10px 8px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div style="width:28px;height:28px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--muted);flex-shrink:0;">${initials}</div>
+                <span style="font-weight:500;color:var(--text);">${agent}</span>
+              </div>
+            </td>
+            <td style="padding:10px 8px;">
+              ${info.email
+                ? `<div style="display:flex;align-items:center;gap:6px;">
+                    <span style="color:#48b4e0;">${info.email}</span>
+                    <button onclick="navigator.clipboard.writeText('${info.email}');window.showToast('Email copiado','success')" title="Copiar" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:12px;padding:2px;">📋</button>
+                   </div>`
+                : `<span style="color:var(--muted);font-style:italic;">Sin email</span>`}
+            </td>
+            <td style="padding:10px 8px;">
+              ${info.tel
+                ? `<div style="display:flex;align-items:center;gap:6px;">
+                    <span style="color:var(--text);">${info.tel}</span>
+                    <button onclick="navigator.clipboard.writeText('${info.tel}');window.showToast('Teléfono copiado','success')" title="Copiar" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:12px;padding:2px;">📋</button>
+                   </div>`
+                : `<span style="color:var(--muted);font-style:italic;">Sin teléfono</span>`}
+            </td>
+            <td style="padding:10px 8px;text-align:right;">
+              <button onclick="removeAgente(${i})" title="Eliminar agente" style="width:26px;height:26px;border-radius:6px;background:rgba(127,29,29,0.3);border:1px solid rgba(127,29,29,0.5);color:#fca5a5;cursor:pointer;font-size:13px;">×</button>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 }
 
 function addAgente() {
