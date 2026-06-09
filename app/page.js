@@ -155,7 +155,7 @@ function renderGrid() {
     const dow = getDayOfWeek(currentYear, currentMonth, d);
     const isWeekend = dow >= 5;
     const isToday = d === todayDay;
-    headHTML += `<th class="${isWeekend ? 'weekend' : ''} ${isToday ? 'today-col' : ''}">
+    headHTML += `<th data-day="${d}" class="${isWeekend ? 'weekend' : ''} ${isToday ? 'today-col' : ''}">
       ${isToday ? '● ' : ''}${d}<br><span style="font-weight:400;font-size:10px">${DAYS_SHORT[dow]}</span></th>`;
   }
   headHTML += '</tr>';
@@ -202,10 +202,13 @@ function renderGrid() {
   updateStats();
   if (todayDay > 0) {
     setTimeout(() => {
-      const todayTh = document.querySelector('thead th.today-col');
-      if (todayTh) todayTh.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      if (window.innerWidth > 768) {
+        const todayTh = document.querySelector('thead th.today-col');
+        if (todayTh) todayTh.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
     }, 80);
   }
+  setTimeout(() => applyMobileWeekFilter(), 50);
 }
 
 // ===== EDIT MODE =====
@@ -1289,6 +1292,54 @@ function processVoiceCommand(raw) {
   showToast(`🎤 No entendí: "${raw.substring(0,40)}" — Di "ayuda" para ejemplos`, 'warning');
 }
 
+// ===== MOBILE WEEK VIEW =====
+let mobileWeekOffset = 0; // 0 = semana actual
+
+function getMobileWeekRange() {
+  const today = new Date(currentYear, currentMonth, new Date().getDate());
+  const dow = today.getDay(); // 0=dom
+  const mondayOffset = (dow === 0 ? -6 : 1 - dow);
+  const weekStart = new Date(today);
+  weekStart.setDate(today.getDate() + mondayOffset + mobileWeekOffset * 7);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  return { start: weekStart.getDate(), end: weekEnd.getDate(), startMonth: weekStart.getMonth(), endMonth: weekEnd.getMonth() };
+}
+
+function applyMobileWeekFilter() {
+  if (typeof window === 'undefined' || window.innerWidth > 768) return;
+  const { start, end, startMonth, endMonth } = getMobileWeekRange();
+  const total = getDaysInMonth(currentYear, currentMonth);
+  const table = document.getElementById('scheduleTable');
+  if (!table) return;
+
+  // Update week label
+  const label = document.getElementById('mobile-week-label');
+  if (label) {
+    const fmt = d => `${d} ${['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'][currentMonth]}`;
+    const s = startMonth === currentMonth ? start : 1;
+    const e = endMonth === currentMonth ? end : total;
+    label.textContent = `${fmt(s)} — ${fmt(e)}`;
+  }
+
+  // Show/hide columns
+  const ths = table.querySelectorAll('thead th');
+  const rows = table.querySelectorAll('tbody tr');
+  ths.forEach((th, i) => {
+    if (i === 0) return; // agent name col
+    const day = parseInt(th.dataset.day);
+    const visible = !isNaN(day) && day >= (startMonth === currentMonth ? start : 1) && day <= (endMonth === currentMonth ? end : total);
+    th.classList.toggle('col-hidden-mobile', !visible);
+    rows.forEach(row => {
+      const td = row.cells[i];
+      if (td) td.classList.toggle('col-hidden-mobile', !visible);
+    });
+  });
+}
+
+function mobileWeekPrev() { mobileWeekOffset--; applyMobileWeekFilter(); }
+function mobileWeekNext() { mobileWeekOffset++; applyMobileWeekFilter(); }
+
 // ===== AYUDA / CONTACTO =====
 function switchAyudaTab(tab) {
   document.getElementById('ayuda-tab-faq').style.display = tab === 'faq' ? '' : 'none';
@@ -1355,6 +1406,13 @@ function isCriticalError(msg) {
 }
 
 if (typeof window !== 'undefined') {
+  window.addEventListener('resize', () => {
+    if (window.innerWidth <= 768) applyMobileWeekFilter();
+    else {
+      // restaurar todas las columnas en desktop
+      document.querySelectorAll('.col-hidden-mobile').forEach(el => el.classList.remove('col-hidden-mobile'));
+    }
+  });
   window.addEventListener('error', e => {
     if (isCriticalError(e.message)) sendCriticalError(e.message + '\n' + (e.filename || ''), 'window.onerror');
   });
@@ -1407,6 +1465,9 @@ if (typeof window !== 'undefined') {
   window.importCSV = importCSV;
   window.downloadPlantilla = downloadPlantilla;
   window.confirmImport = confirmImport;
+  window.mobileWeekPrev = mobileWeekPrev;
+  window.mobileWeekNext = mobileWeekNext;
+  window.applyMobileWeekFilter = applyMobileWeekFilter;
   window.switchAyudaTab = switchAyudaTab;
   window.enviarContacto = enviarContacto;
   window.switchImportTab = switchImportTab;
@@ -1738,6 +1799,13 @@ export default function Home() {
         <div className="tab active" onClick={e => window.switchModule?.(0, e.currentTarget)}>Módulo A — Banca</div>
         <div className="tab" onClick={e => window.switchModule?.(1, e.currentTarget)}>Módulo B — Seguros</div>
         <div className="tab" onClick={e => window.switchModule?.(2, e.currentTarget)}>Módulo C — Telco</div>
+      </div>
+
+      {/* SEMANA NAV — solo móvil */}
+      <div className="week-nav-mobile">
+        <button onClick={() => window.mobileWeekPrev?.()}>‹</button>
+        <span id="mobile-week-label">Esta semana</span>
+        <button onClick={() => window.mobileWeekNext?.()}>›</button>
       </div>
 
       {/* TOOLBAR */}

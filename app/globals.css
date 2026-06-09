@@ -459,3 +459,92 @@ td.agent-name .role { font-size: 11px; color: var(--muted); font-weight: 400; }
 .shift-dot.B { background: var(--shift-b); }
 .shift-dot.OFF { background: var(--off); border: 1px solid var(--border); }
 .shift-dot.AUS { background: var(--red); }
+
+/* ===== RESPONSIVE MÓVIL ===== */
+@media (max-width: 768px) {
+
+  /* Header */
+  .header { padding: 0 12px; height: 52px; gap: 8px; }
+  .header-logo { font-size: 13px; }
+  .header-actions { gap: 4px; flex-wrap: nowrap; overflow-x: auto; }
+  .header-actions .btn { padding: 5px 8px; font-size: 11px; white-space: nowrap; }
+  .header-actions .btn-sm { padding: 4px 7px; font-size: 11px; }
+  /* Ocultar texto de botones que no caben, dejar solo icono */
+  .header-actions .btn-hide-mobile { display: none; }
+
+  /* Tabs */
+  .tabs-bar { padding: 0 8px; overflow-x: auto; gap: 0; }
+  .tab { padding: 10px 12px; font-size: 12px; }
+
+  /* Stats cards: 2 columnas */
+  .stats-grid { grid-template-columns: 1fr 1fr !important; gap: 8px !important; padding: 12px !important; }
+  .stat-card { padding: 12px !important; }
+  .stat-value { font-size: 24px !important; }
+  .stat-label { font-size: 10px !important; }
+
+  /* Toolbar */
+  .toolbar { padding: 10px 12px; gap: 8px; }
+  .toolbar-right { gap: 4px; flex-wrap: wrap; }
+  .toolbar-right .btn { padding: 5px 8px; font-size: 11px; }
+
+  /* Leyenda */
+  .legend { padding: 0 12px 10px; gap: 8px; flex-wrap: wrap; }
+  .legend-item { font-size: 11px; }
+
+  /* Grid: ocultar días lejanos, mostrar solo semana actual */
+  .grid-wrap { padding: 0 0 32px; overflow-x: hidden; }
+  table { min-width: unset; width: 100%; }
+  thead th { padding: 6px 3px; font-size: 10px; }
+  thead th.agent-col { min-width: 100px; padding-left: 8px; }
+  td { padding: 4px 2px; }
+  td.agent-name { font-size: 11px; padding: 6px 8px 6px 8px; min-width: 100px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Chips de turno más pequeños */
+  .shift-chip { width: 22px !important; height: 20px !important; font-size: 9px !important; border-radius: 4px !important; }
+
+  /* Ocultar columnas de fin de semana lejano en móvil — se controla via JS */
+  .col-hidden-mobile { display: none !important; }
+
+  /* Modales full-screen en móvil */
+  .overlay { align-items: flex-end; }
+  .modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 20px 20px 0 0 !important;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  /* Panel historial full-width */
+  .side-panel { width: 100% !important; right: 0 !important; }
+
+  /* Footer */
+  footer { flex-direction: column; gap: 8px; padding: 14px 16px; }
+}
+
+/* Chip de semana móvil */
+.week-nav-mobile {
+  display: none;
+}
+@media (max-width: 768px) {
+  .week-nav-mobile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 6px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .week-nav-mobile button {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+}
