@@ -594,9 +594,9 @@ td.agent-name .role { font-size: 11px; color: var(--muted); font-weight: 400; }
   }
 
   /* Panel historial full-width */
-  .side-panel { width: 100% !important; right: 0 !important; top: 0 !important; height: 100vh !important; z-index: 999 !important; }
-  .panel-backdrop { z-index: 998 !important; }
-  .panel-close { width: 44px !important; height: 44px !important; font-size: 22px !important; z-index: 1000 !important; position: relative; }
+  .side-panel { width: 100% !important; right: 0 !important; top: 0 !important; height: 100vh !important; z-index: 9999 !important; }
+  .panel-backdrop { display: none !important; }
+  .panel-close { width: 48px !important; height: 48px !important; font-size: 24px !important; }
   .panel-header { padding: 16px !important; }
 
   /* Footer */
