@@ -480,6 +480,7 @@ td.agent-name .role { font-size: 11px; color: var(--muted); font-weight: 400; }
     display: flex;
     position: fixed;
     bottom: 0; left: 0; right: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     background: var(--surface);
     border-top: 1px solid var(--border);
     z-index: 200;
@@ -507,8 +508,8 @@ td.agent-name .role { font-size: 11px; color: var(--muted); font-weight: 400; }
   .mobile-nav button .nav-icon { font-size: 20px; line-height: 1; }
   .mobile-nav .nav-alert { color: #fca5a5; }
 
-  /* Espacio para la barra inferior */
-  body { padding-bottom: 68px; }
+  /* Espacio para la barra inferior + safe area iOS */
+  body { padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
 
   /* Tabs */
   .tabs-bar { padding: 0 8px; overflow-x: auto; gap: 0; -webkit-overflow-scrolling: touch; }
