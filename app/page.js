@@ -790,6 +790,7 @@ function closePanel() {
   document.getElementById('panelBackdrop')?.classList.remove('open');
 }
 
+
 function switchPanelTab(tab, el) {
   activePanelTab = tab;
   document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
@@ -1717,6 +1718,14 @@ export default function Home() {
     // Set month label
     const ml = document.getElementById('monthLabel');
     if (ml) ml.textContent = `${MONTHS[currentMonth]} ${currentYear}`;
+
+    // Safari iOS: touchend fix for panel close button
+    setTimeout(() => {
+      const closeBtn = document.querySelector('.panel-close');
+      if (closeBtn) {
+        closeBtn.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); closePanel(); }, { passive: false });
+      }
+    }, 500);
 
     setMounted(true);
   }, []);
